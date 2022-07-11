@@ -31,12 +31,13 @@ class TKRDataset(torch.utils.data.Dataset):
                  data_dir: str,
                  # Plane: 0-saggital-slice of first dimension, 1-coronal-slice on second dimension
                  plane: int, 
-                 with_constraint: False,
+                 with_constraint = False,
                  slice_delta_on_each_side: int = 30,
+                 crop_to_cartilage: bool = False,
                  c_size: int=64,
-                 
                  ):
         self.c_size = c_size
+        self.do_crop = crop_to_cartilage
         self.data_dir = data_dir
         folders = os.listdir(data_dir)
         assert 'TKR' in folders and 'NO_TKR' in folders
@@ -84,6 +85,7 @@ class TKRDataset(torch.utils.data.Dataset):
             img = np.flip(img, 0)
 
         x, y, z = img.shape
+            
         if self.plane == 1:
             mid = y // 2
             random_index = random.choice(range(mid-self.delta, mid+self.delta))
@@ -98,3 +100,4 @@ class TKRDataset(torch.utils.data.Dataset):
             img_s=cv2.resize(img_s, (256, 256))
 
         return img_s, target
+

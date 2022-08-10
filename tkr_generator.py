@@ -7,12 +7,14 @@ import random
 import numpy as np
 import os
 import cv2
-import nibabel as nib
+
 import subprocess
 import sys
 import PIL.Image
 
-subprocess.check_call([sys.executable, "-m", "pip", "install", "nibabel"])
+# subprocess.check_call([sys.executable, "-m", "pip", "install", "nibabel"])
+import nibabel as nib
+
 def bbox2_3D(img):
     r = np.any(img, axis=(1, 2))
     c = np.any(img, axis=(0, 2))
@@ -35,6 +37,7 @@ class TKRDataset(torch.utils.data.Dataset):
                  slice_delta_on_each_side: int = 30,
                  crop_to_cartilage: bool = False,
                  c_size: int=64,
+                 batch_size=4,
                  ):
         self.c_size = c_size
         self.do_crop = crop_to_cartilage
@@ -48,6 +51,7 @@ class TKRDataset(torch.utils.data.Dataset):
         random.shuffle(self.tkr_samples)
         random.shuffle(self.non_tkr_samples)
         self.num_channels = 1
+        self.batch_size = batch_size
         super().__init__()
 
 
@@ -71,33 +75,41 @@ class TKRDataset(torch.utils.data.Dataset):
         return self.image_shape[1]
 
     def __getitem__(self, idx):
-        if random.random() > 0.5:
-            sample = random.choice(self.tkr_samples)
-            target = 0
-            img = nib.load(os.path.join(self.data_dir, 'TKR', sample)).get_fdata()
-        else:
-            sample = random.choice(self.non_tkr_samples)
-            target = 1
-            img = nib.load(os.path.join(self.data_dir, 'NO_TKR', sample)).get_fdata()
-
-        if random.random() > 0.5:
-            # 50% chance left right flip
-            img = np.flip(img, 0)
-
-        x, y, z = img.shape
+        j = 0
+        img_lst = []
+        target_lst = []
+        while j<self.batch_size:
+            if random.random() > 0.5:
+                sample = random.choice(self.tkr_samples)
+                target = 0
+                img = nib.load(os.path.join(self.data_dir, 'TKR', sample)).get_fdata()
+            else:
+                sample = random.choice(self.non_tkr_samples)
+                target = 1
+                img = nib.load(os.path.join(self.data_dir, 'NO_TKR', sample)).get_fdata()
+            if random.random() > 0.5:
+                # 50% chance left right flip
+                img = np.flip(img, 0)
+            x, y, z = img.shape               
+            if self.plane == 1:
+                mid = y // 2
+                random_index = random.choice(range(mid-self.delta, mid+self.delta))
+                img_s = img[:, random_index, :]
+                img_s=cv2.resize(img_s, (256, 256))
+                img_s = np.clip(img_s, 0, 300)
+                img_s = cv2.normalize(img_s, None, 0, 1, cv2.NORM_MINMAX)
+            elif self.plane == 0:
+                mid = x // 2
+                random_index = random.choice(range(mid-self.delta, mid+self.delta))
+                img_s = img[random_index, :, :]
+                img_s=cv2.resize(img_s, (256, 256))
+                img_s = np.clip(img_s, 0, 300)
+                img_s = cv2.normalize(img_s, None, 0, 1, cv2.NORM_MINMAX)
             
-        if self.plane == 1:
-            mid = y // 2
-            random_index = random.choice(range(mid-self.delta, mid+self.delta))
-            img_s = img[:, random_index, :]
-            img_s = cv2.normalize(img_s, None, 0,255, cv2.NORM_MINMAX)
-            img_s=cv2.resize(img_s, (256, 256))
-        elif self.plane == 0:
-            mid = x // 2
-            random_index = random.choice(range(mid-self.delta, mid+self.delta))
-            img_s = img[random_index, :, :]
-            img_s = cv2.normalize(img_s, None, 0, 255, cv2.NORM_MINMAX)
-            img_s=cv2.resize(img_s, (256, 256))
-
-        return img_s, target
+            img_lst.append(img_s)
+            target_lst.append(target)
+            j += 1
+            imgs = np.stack(img_lst, axis=0)
+            targets = np.stack(target_lst, axis=0)
+        return imgs, targets
 
